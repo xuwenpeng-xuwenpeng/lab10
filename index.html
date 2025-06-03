@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>日出动画 - 太阳慢慢升起</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        canvas {
+            border: 1px solid #333;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            max-width: 100%;
+            max-height: 100%;
+        }
+        .controls {
+            position: absolute;
+            bottom: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            padding: 8px 16px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="sunriseCanvas"></canvas>
+    <div class="controls">
+        <button id="startBtn">开始日出</button>
+        <button id="resetBtn">重置</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('sunriseCanvas');
+        const ctx = canvas.getContext('2d');
+        const startBtn = document.getElementById('startBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        
+        // 设置画布大小
+        function resizeCanvas() {
+            const size = Math.min(window.innerWidth, window.innerHeight) * 0.9;
+            canvas.width = size;
+            canvas.height = size;
+        }
+        
+        // 初始太阳位置（海平面下方）
+        let sunY = canvas.height * 1.2;
+        const sunRadius = canvas.width * 0.1;
+        let animationId = null;
+        let isAnimating = false;
+        
+        // 绘制场景
+        function drawScene() {
+            // 清除画布
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 计算太阳位置对应的天空颜色
+            const progress = Math.max(0, Math.min(1, (canvas.height * 0.8 - sunY) / (canvas.height * 0.8 - canvas.height * 0.2)));
+            
+            // 绘制渐变天空背景
+            const skyGradient = ctx.createLinearGradient(0, 0, 0, canvas.height * 0.7);
+            skyGradient.addColorStop(0, getSkyColor(progress, 0));
+            skyGradient.addColorStop(0.5, getSkyColor(progress, 0.5));
+            skyGradient.addColorStop(1, getSkyColor(progress, 1));
+            
+            ctx.fillStyle = skyGradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height * 0.7);
+            
+            // 绘制海面
+            const seaGradient = ctx.createLinearGradient(0, canvas.height * 0.7, 0, canvas.height);
+            seaGradient.addColorStop(0, getSeaColor(progress, 0));
+            seaGradient.addColorStop(1, getSeaColor(progress, 1));
+            
+            ctx.fillStyle = seaGradient;
+            ctx.fillRect(0, canvas.height * 0.7, canvas.width, canvas.height * 0.3);
+            
+            // 绘制太阳
+            if (sunY < canvas.height * 1.2) {
+                const sunColor = getSunColor(progress);
+                const sunGradient = ctx.createRadialGradient(
+                    canvas.width / 2, sunY, 0,
+                    canvas.width / 2, sunY, sunRadius
+                );
+                sunGradient.addColorStop(0, sunColor);
+                sunGradient.addColorStop(0.7, adjustBrightness(sunColor, -0.3));
+                sunGradient.addColorStop(1, 'rgba(255, 102, 0, 0)');
+                
+                ctx.beginPath();
+                ctx.arc(canvas.width / 2, sunY, sunRadius, 0, Math.PI * 2);
+                ctx.fillStyle = sunGradient;
+                ctx.fill();
+                
+                // 绘制太阳光晕
+                const glowGradient = ctx.createRadialGradient(
+                    canvas.width / 2, sunY, 0,
+                    canvas.width / 2, sunY, sunRadius * 2.5
+                );
+                glowGradient.addColorStop(0, adjustBrightness(sunColor, 0.2, 0.3));
+                glowGradient.addColorStop(1, 'rgba(255, 102, 0, 0)');
+                
+                ctx.beginPath();
+                ctx.arc(canvas.width / 2, sunY, sunRadius * 2.5, 0, Math.PI * 2);
+                ctx.fillStyle = glowGradient;
+                ctx.fill();
+                
+                // 绘制海面反射
+                if (sunY > canvas.height * 0.6 && sunY < canvas.height * 0.9) {
+                    const reflectionHeight = canvas.height * 0.7 - sunY;
+                    if (reflectionHeight > 0) {
+                        const reflectionGradient = ctx.createLinearGradient(
+                            canvas.width / 2, canvas.height * 0.7,
+                            canvas.width / 2, canvas.height * 0.7 + reflectionHeight * 2
+                        );
+                        reflectionGradient.addColorStop(0, adjustBrightness(sunColor, 0, 0.2));
+                        reflectionGradient.addColorStop(1, 'rgba(255, 102, 0, 0)');
+                        
+                        ctx.fillStyle = reflectionGradient;
+                        ctx.fillRect(
+                            canvas.width / 2 - sunRadius * 1.5,
+                            canvas.height * 0.7,
+                            sunRadius * 3,
+                            reflectionHeight * 2
+                        );
+                    }
+                }
+            }
+            
+            // 绘制海平面波浪效果
+            drawWaves(progress);
+        }
+        
+        // 根据进度获取天空颜色
+        function getSkyColor(progress, position) {
+            const nightColor = [0, 26, 51];    // 深蓝色
+            const sunriseColor = [255, 179, 102]; // 橙黄色
+            const dayColor = [135, 206, 235];   // 天蓝色
+            
+            if (progress < 0.3) {
+                // 夜晚到日出
+                const t = progress / 0.3;
+                return interpolateColor(nightColor, sunriseColor, t, position);
+            } else {
+                // 日出到白天
+                const t = (progress - 0.3) / 0.7;
+                return interpolateColor(sunriseColor, dayColor, t, position);
+            }
+        }
+        
+        // 根据进度获取海面颜色
+        function getSeaColor(progress, position) {
+            const nightColor = [0, 20, 40];     // 深夜海色
+            const sunriseColor = [0, 60, 120];   // 日出海色
+            const dayColor = [30, 144, 255];     // 白天海色
+            
+            if (progress < 0.3) {
+                const t = progress / 0.3;
+                return interpolateColor(nightColor, sunriseColor, t, position);
+            } else {
+                const t = (progress - 0.3) / 0.7;
+                return interpolateColor(sunriseColor, dayColor, t, position);
+            }
+        }
+        
+        // 根据进度获取太阳颜色
+        function getSunColor(progress) {
+            const deepRed = [255, 60, 0];      // 深红色（刚升起）
+            const orange = [255, 140, 0];     // 橙色
+            const yellow = [255, 220, 0];     // 黄色（高空）
+            
+            if (progress < 0.2) {
+                return `rgb(${deepRed.join(',')})`;
+            } else if (progress < 0.5) {
+                const t = (progress - 0.2) / 0.3;
+                return interpolateColor(deepRed, orange, t);
+            } else {
+                const t = (progress - 0.5) / 0.5;
+                return interpolateColor(orange, yellow, t);
+            }
+        }
+        
+        // 颜色插值
+        function interpolateColor(color1, color2, t, positionFactor = 1) {
+            // positionFactor 用于垂直方向的渐变（0=顶部，1=底部）
+            const adjustedT = t * positionFactor;
+            const r = Math.round(color1[0] + (color2[0] - color1[0]) * adjustedT);
+            const g = Math.round(color1[1] + (color2[1] - color1[1]) * adjustedT);
+            const b = Math.round(color1[2] + (color2[2] - color1[2]) * adjustedT);
+            return `rgb(${r}, ${g}, ${b})`;
+        }
+        
+        // 调整颜色亮度
+        function adjustBrightness(color, factor, alpha = 1) {
+            if (color.startsWith('rgb(')) {
+                const parts = color.match(/\d+/g);
+                const r = Math.min(255, Math.max(0, parseInt(parts[0]) * (1 + factor)));
+                const g = Math.min(255, Math.max(0, parseInt(parts[1]) * (1 + factor)));
+                const b = Math.min(255, Math.max(0, parseInt(parts[2]) * (1 + factor)));
+                return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+            }
+            return color;
+        }
+        
+        // 绘制波浪效果
+        function drawWaves(progress) {
+            const waveHeight = canvas.height * 0.7;
+            const amplitude = 2 + progress * 5; // 波浪高度随太阳升高而增大
+            const frequency = 0.02;
+            
+            ctx.strokeStyle = adjustBrightness(getSeaColor(progress, 0), 0.3, 0.8);
+            ctx.lineWidth = 1.5;
+            
+            // 绘制3层波浪
+            for (let i = 0; i < 3; i++) {
+                ctx.beginPath();
+                const offset = i * 20;
+                const yOffset = i * 3;
+                
+                for (let x = 0; x <= canvas.width; x += 2) {
+                    const y = waveHeight + yOffset + Math.sin(x * frequency + Date.now() * 0.001 * (i + 1)) * amplitude;
+                    
+                    if (x === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                }
+                
+                ctx.stroke();
+            }
+        }
+        
+        // 动画函数
+        function animate() {
+            // 太阳上升
+            if (sunY > canvas.height * 0.2) {
+                sunY -= 0.5;
+                drawScene();
+                animationId = requestAnimationFrame(animate);
+            } else {
+                isAnimating = false;
+                startBtn.textContent = "日出完成";
+            }
+        }
+        
+        // 开始动画
+        function startAnimation() {
+            if (!isAnimating) {
+                isAnimating = true;
+                startBtn.textContent = "日出中...";
+                animate();
+            }
+        }
+        
+        // 重置动画
+        function resetAnimation() {
+            cancelAnimationFrame(animationId);
+            isAnimating = false;
+            sunY = canvas.height * 1.2;
+            startBtn.textContent = "开始日出";
+            drawScene();
+        }
+        
+        // 初始化
+        function init() {
+            resizeCanvas();
+            drawScene();
+            
+            // 事件监听
+            startBtn.addEventListener('click', startAnimation);
+            resetBtn.addEventListener('click', resetAnimation);
+            
+            window.addEventListener('resize', () => {
+                const oldSunPosition = sunY / canvas.height;
+                resizeCanvas();
+                sunY = canvas.height * oldSunPosition;
+                drawScene();
+            });
+        }
+        
+        // 启动
+        init();
+    </script>
+</body>
+</html>
